@@ -349,6 +349,8 @@ p { color: var(--muted); line-height: 1.5; }
 .settings-card p, .danger-zone p { margin-bottom: 14px; font-size: 11px; }
 .settings-actions { display: flex; gap: 8px; }
 .privacy-card ul { margin: 0; padding-left: 19px; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.data-credit { margin: 12px 0 0 !important; }
+.data-credit a { color: var(--green-2); font-weight: 800; }
 .danger-zone { border-color: rgba(200,88,77,.25); background: #fae7e3; }
 .version-note { margin: 22px 0; text-align: center; font-size: 10px; }
 
@@ -402,6 +404,24 @@ dialog::backdrop { background: rgba(10, 25, 22, .55); backdrop-filter: blur(5px)
 .check-field input { width: 20px; height: 20px; accent-color: var(--green); }
 .dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .danger-link { margin-right: auto; border: 0; color: var(--red); background: transparent; font-size: 12px; font-weight: 800; }
+
+.quick-product-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+  margin: 3px 0 17px;
+  padding: 14px;
+  border: 1px solid rgba(47, 106, 88, .13);
+  border-radius: 19px;
+  background: var(--mint);
+}
+.quick-product-icon { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 15px; color: white; background: var(--green-2); font-size: 22px; font-weight: 900; }
+.quick-product-summary h3 { margin: 5px 0 3px; font-size: 16px; }
+.quick-product-summary p { margin: 0; font-size: 10px; }
+.lookup-badge { color: var(--green-2); font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .07em; }
+.quick-add-dialog .dialog-actions { justify-content: space-between; }
+.quick-add-dialog .ghost-button { min-height: 42px; padding: 0 12px; font-size: 10px; }
 
 .camera-dialog { width: 100%; max-width: none; height: 100%; max-height: none; background: #07110f; }
 .camera-shell { display: grid; grid-template-rows: auto 1fr auto; width: 100%; min-height: 100dvh; color: white; background: #07110f; }

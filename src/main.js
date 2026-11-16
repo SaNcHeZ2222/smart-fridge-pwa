@@ -14,6 +14,7 @@ import {
   setSetting
 } from './db.js';
 import { INGREDIENTS, RECIPES } from './recipes.js';
+import { inferIngredientId, lookupOpenFoodFacts } from './product-lookup.js';
 import { beep, cameraSupported, startScanner, stopScanner } from './scanner.js';
 import {
   addDaysISO,
@@ -44,6 +45,7 @@ const state = {
   facingMode: 'user',
   activeRecipeId: null,
   installPrompt: null,
+  pendingScanProduct: null,
   timers: readTimers(),
   shoppingChecked: new Set(JSON.parse(localStorage.getItem('svezho-shopping-checked') || '[]'))
 };
@@ -54,6 +56,8 @@ app.innerHTML = shellMarkup();
 const main = document.querySelector('#main-content');
 const itemDialog = document.querySelector('#item-dialog');
 const itemForm = document.querySelector('#item-form');
+const quickAddDialog = document.querySelector('#quick-add-dialog');
+const quickAddForm = document.querySelector('#quick-add-form');
 const scanDialog = document.querySelector('#scan-dialog');
 const recipeDialog = document.querySelector('#recipe-dialog');
 const importInput = document.querySelector('#import-file');
@@ -260,14 +264,16 @@ function renderSettings() {
         <li>Содержимое холодильника хранится в IndexedDB на этом устройстве.</li>
         <li>Камера включается только на экране сканирования.</li>
         <li>Фотографии и видео не сохраняются и никуда не отправляются.</li>
+        <li>Для незнакомого товара в Open Food Facts отправляется только GTIN/штрихкод.</li>
       </ul>
+      <p class="data-credit">Данные о товарах: <a href="https://world.openfoodfacts.org/" target="_blank" rel="noreferrer">Open Food Facts</a> (ODbL).</p>
     </section>
     <section class="danger-zone">
       <h2>Очистить локальные данные</h2>
       <p>Перед очисткой рекомендуется сделать резервную копию.</p>
       <button class="danger-button" data-action="clear">Удалить все данные</button>
     </section>
-    <p class="version-note">Свежо · MVP 0.1 · ${navigator.onLine ? 'в сети' : 'офлайн'}</p>
+    <p class="version-note">Свежо · MVP 0.2 · ${navigator.onLine ? 'в сети' : 'офлайн'}</p>
   `;
 }
 
@@ -294,7 +300,9 @@ function bindStaticEvents() {
   });
 
   itemForm.addEventListener('submit', handleItemSubmit);
+  quickAddForm.addEventListener('submit', handleQuickAddSubmit);
   itemDialog.addEventListener('click', handleDialogBackdrop);
+  quickAddDialog.addEventListener('click', handleDialogBackdrop);
   scanDialog.addEventListener('click', handleDialogBackdrop);
   recipeDialog.addEventListener('click', handleDialogBackdrop);
   scanDialog.addEventListener('close', stopScanner);
@@ -317,6 +325,17 @@ function bindStaticEvents() {
     const button = event.target.closest('[data-add-days]');
     if (!button) return;
     itemForm.elements.expiresOn.value = addDaysISO(button.dataset.addDays);
+  });
+  document.querySelector('#quick-add-date-row').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-add-days]');
+    if (!button) return;
+    quickAddForm.elements.expiresOn.value = addDaysISO(button.dataset.addDays);
+  });
+  document.querySelector('#quick-add-edit').addEventListener('click', () => {
+    const product = state.pendingScanProduct;
+    if (!product) return;
+    quickAddDialog.close();
+    openItemDialog(product);
   });
   document.querySelector('#remove-item').addEventListener('click', async () => {
     const id = itemForm.elements.id.value;
@@ -454,18 +473,48 @@ async function handleScannedCode(rawCode) {
     return;
   }
 
+  const status = document.querySelector('#scan-status');
+  status.textContent = navigator.onLine ? 'Код считан. Ищу товар…' : 'Код считан. Работаю офлайн…';
+
   const catalog = await getCatalogProduct(productCode);
+  const foundLocally = Boolean(catalog);
+  let product = catalog;
+  if (!product && navigator.onLine) {
+    const external = await lookupOpenFoodFacts(productCode);
+    if (external) {
+      product = {
+        ...external,
+        ingredientId: inferIngredientId(external, INGREDIENTS),
+        unit: 'шт.'
+      };
+    }
+  }
+
   scanDialog.close();
-  openItemDialog({
-    name: catalog?.name || '',
-    ingredientId: catalog?.ingredientId || 'other',
-    unit: catalog?.unit || 'шт.',
+  const scannedProduct = {
+    name: product?.name || '',
+    ingredientId: product?.ingredientId || 'other',
+    unit: product?.unit || 'шт.',
+    brand: product?.brand || '',
+    packageQuantity: product?.packageQuantity || '',
+    imageUrl: product?.imageUrl || '',
+    source: product?.source || (catalog ? 'local' : ''),
+    lookupOrigin: foundLocally ? 'local' : product?.source || '',
     productCode,
     scanCode,
     serial: gs1.serial,
     expiresOn: gs1.expiration || gs1.bestBefore || ''
-  });
-  if (!gs1.expiration && !gs1.bestBefore) showToast('Код считан. Теперь укажите срок на упаковке.');
+  };
+
+  if (product?.name) {
+    openQuickAddDialog(scannedProduct);
+    if (!foundLocally && product.source === 'open-food-facts') showToast('Товар найден в Open Food Facts.');
+  } else {
+    openItemDialog(scannedProduct);
+    showToast(navigator.onLine
+      ? 'Товар не найден. Введите название один раз — я его запомню.'
+      : 'Нет сети. Введите название один раз — я его запомню.');
+  }
 }
 
 function openItemDialog(item = null) {
@@ -481,10 +530,47 @@ function openItemDialog(item = null) {
   itemForm.elements.productCode.value = item?.productCode || '';
   itemForm.elements.scanCode.value = item?.scanCode || '';
   itemForm.elements.serial.value = item?.serial || '';
+  itemForm.elements.brand.value = item?.brand || '';
+  itemForm.elements.packageQuantity.value = item?.packageQuantity || '';
+  itemForm.elements.imageUrl.value = item?.imageUrl || '';
+  itemForm.elements.source.value = item?.source || '';
   document.querySelector('#item-dialog-title').textContent = item?.id ? 'Изменить продукт' : 'Добавить продукт';
   document.querySelector('#remove-item').hidden = !item?.id;
   itemDialog.showModal();
   setTimeout(() => itemForm.elements.name.focus(), 80);
+}
+
+function openQuickAddDialog(product) {
+  state.pendingScanProduct = product;
+  quickAddForm.reset();
+  quickAddForm.elements.zone.value = product.zone || 'fridge';
+  quickAddForm.elements.quantity.value = product.quantity || 1;
+  quickAddForm.elements.unit.value = product.unit || 'шт.';
+  quickAddForm.elements.expiresOn.value = product.expiresOn || '';
+  document.querySelector('#quick-add-name').textContent = product.name;
+
+  const details = [product.brand, product.packageQuantity].filter(Boolean).join(' · ');
+  document.querySelector('#quick-add-meta').textContent = details || 'Товар из личного каталога';
+  const source = document.querySelector('#quick-add-source');
+  source.textContent = product.lookupOrigin === 'local' ? 'Знакомый товар' : 'Найдено в Open Food Facts';
+  quickAddDialog.showModal();
+}
+
+async function handleQuickAddSubmit(event) {
+  event.preventDefault();
+  const product = state.pendingScanProduct;
+  if (!product) return;
+  const data = Object.fromEntries(new FormData(quickAddForm));
+  await saveInventoryItem({
+    ...product,
+    ...data,
+    expiresOn: data.expiresOn || null,
+    opened: false
+  });
+  quickAddDialog.close();
+  state.pendingScanProduct = null;
+  showToast(`Добавлено: ${product.name}`);
+  await refreshInventory();
 }
 
 async function handleItemSubmit(event) {
@@ -864,6 +950,10 @@ function shellMarkup() {
         <input type="hidden" name="productCode" />
         <input type="hidden" name="scanCode" />
         <input type="hidden" name="serial" />
+        <input type="hidden" name="brand" />
+        <input type="hidden" name="packageQuantity" />
+        <input type="hidden" name="imageUrl" />
+        <input type="hidden" name="source" />
         <label class="field"><span>Название</span><input name="name" required placeholder="Например, молоко" autocomplete="off" /></label>
         <label class="field"><span>Категория для рецептов</span><select name="ingredientId">${options}</select></label>
         <div class="field-grid">
@@ -874,6 +964,24 @@ function shellMarkup() {
         <div id="quick-date-row" class="quick-dates"><button type="button" data-add-days="1">+1 день</button><button type="button" data-add-days="3">+3</button><button type="button" data-add-days="7">+7</button><button type="button" data-add-days="14">+14</button></div>
         <label class="check-field"><input name="opened" type="checkbox" /><span>Упаковка уже открыта</span></label>
         <div class="dialog-actions"><button id="remove-item" class="danger-link" type="button" hidden>Убрать</button><button class="primary-button" type="submit">Сохранить</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="quick-add-dialog" class="sheet-dialog quick-add-dialog">
+      <form id="quick-add-form" method="dialog" class="sheet-card">
+        <div class="sheet-handle"></div>
+        <div class="dialog-heading"><h2>Добавить продукт</h2><button type="button" data-close-dialog aria-label="Закрыть">×</button></div>
+        <section class="quick-product-summary">
+          <div class="quick-product-icon">✓</div>
+          <div><span id="quick-add-source" class="lookup-badge">Знакомый товар</span><h3 id="quick-add-name"></h3><p id="quick-add-meta"></p></div>
+        </section>
+        <div class="field-grid">
+          <label class="field"><span>Где лежит</span><select name="zone"><option value="fridge">Холодильник</option><option value="freezer">Морозилка</option></select></label>
+          <label class="field"><span>Количество</span><div class="quantity-field"><input name="quantity" type="number" min="0" step="0.1" value="1" /><select name="unit"><option>шт.</option><option>г</option><option>кг</option><option>мл</option><option>л</option><option>уп.</option></select></div></label>
+        </div>
+        <label class="field"><span>Годен до</span><input name="expiresOn" type="date" /></label>
+        <div id="quick-add-date-row" class="quick-dates"><button type="button" data-add-days="1">+1 день</button><button type="button" data-add-days="3">+3</button><button type="button" data-add-days="7">+7</button><button type="button" data-add-days="14">+14</button></div>
+        <div class="dialog-actions"><button id="quick-add-edit" class="ghost-button" type="button">Изменить карточку</button><button class="primary-button" type="submit">Добавить</button></div>
       </form>
     </dialog>
 

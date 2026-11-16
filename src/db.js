@@ -37,6 +37,10 @@ export async function saveInventoryItem(item) {
     productCode: item.productCode || null,
     scanCode: item.scanCode || null,
     serial: item.serial || null,
+    brand: item.brand || null,
+    packageQuantity: item.packageQuantity || null,
+    imageUrl: item.imageUrl || null,
+    source: item.source || null,
     createdAt: item.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -48,6 +52,10 @@ export async function saveInventoryItem(item) {
       name: record.name,
       ingredientId: record.ingredientId,
       unit: record.unit,
+      brand: record.brand,
+      packageQuantity: record.packageQuantity,
+      imageUrl: record.imageUrl,
+      source: record.source,
       updatedAt: record.updatedAt
     });
   }
